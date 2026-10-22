@@ -1,0 +1,128 @@
+setup: 
+  debug: false
+
+data:
+  db:
+    dbname: ""
+    schema: ""
+
+  tables:
+    - name: "messungen"
+      columns: [] # wenn leer alle Spalten , min quell_id und messzeit_utc
+      quell_typ: ["senseBox", "DL Windsensor", "DL Wetterstation", "DWD"]
+      start_date: "2024-12-30 00:00:00" 
+      end_date: "2025-01-01 23:59:59"
+      sb_filter: [] # nur bestimmte SB verwenden, [] für alle SB
+    - name: "quelle"
+      columns: [] # wenn leer alle Spalten, min id, quell_properties, from_date und until_date
+      typ: ["senseBox", "DL Windsensor", "DL Wetterstation", "DWD"]
+    - name: "location"
+      columns: ["id", "properties"]
+
+  prepare_dataset_splits: true
+  use_geofeatures: true
+
+preprocessing:
+  # JSON Daten extrahieren
+  SB_measured_values: 
+    temperature: ["value"]
+    humidity: ["value"]
+    pressure: ["value"]
+    lux: ["value"] 
+    uv: ["value"]
+
+  additional_parameters: 
+    lora: []
+    gateway: []
+    sensebox: []
+
+  quell_properties: [] # niota_standort notwendig wenn standortdaten aus PG geladen werden sollen
+  raster_properties: ['NDVI', 'GEB_D', 'Albedo', 'BO_FEU', 'STRA_D', 'GEL_EXP', 'GEL_HOE', 'GEL_NEI', 'PARKP_D', 'BESCHIRM', 'GEL_FORM', 'WASSER_D', 'GRU_VOL_D', 'VERS_2025', 'VEG_HOE', 'LT_4', 'LT_14'] 
+
+  # Neighboring senseBoxes, DL and DWD stations
+  # location column required for the following preprocessing
+  neighboring_senseBoxes: true
+  use_climatological_neighbors: true
+  number_of_neighbors: [5, 2] # [num_neighbors_considered, num_neighbors_output]
+  neighbors_reduction_method: "keep_n_closest_to_median" # "agg_mean", "keep_n_closest_to_median", "none"
+  consistency_threshold_neighbors: 15.0 # max allowed temperature difference between final two neighbors or neighbors and DWD (if available)
+  measured_values_neighbors: 
+    temperature: ["value"]
+    humidity: ["value"]
+    pressure: ["value"]
+    lux: ["value"] 
+    uv: ["value"]
+
+  use_climatological_targets: true
+  number_of_DL_stations: 1
+  measured_values_DL_stations: 
+    temperature: ["value"]
+  DWD_10min: true
+  DWD_stations_10min: ["DWD001"]
+  DWD_measured_values_10min: 
+    # temperature: ["value"] # measured data
+    temperature: 
+      main: ["value"] # smoothed data
+
+  drop_columns: ["location_features", "id", "time_range_validity", "quell_typ", "quell_name", "location", "area_validity", "from_date", "until_date", "quell_properties", "corrected_values", "location_id", "location_area_validity", "location_id_raster", "location_area_validity_raster"]
+  allow_drop_quell_id: true
+  
+  NaN_handling:
+    NaN-fanactive_replace_with_0: true
+    dwd_NaN_replacement: "drop"  # "neighbors", "drop" or specific float value
+    neighbors: "drop" # "each_other_else_dwd", "drop"
+    drop_rest: true
+    exclude_from_drop: ["temperature_value_dl_1"]
+
+  feature_engineering:
+    ema_15:
+      columns: []
+    ewma_15:
+      columns: []
+    measurement_time_handling: 
+      extract_month: false
+      extract_time: true
+      extract_doy: true
+
+  plausibility_checks:
+    enable: false
+    filter_implausible_samples: true
+    boundaries:
+      temperature_value: [-20, 50] # [min, max] or null for no check
+    specific_values:
+      temperature_value: [0.000]
+    mad_threshold_quantile: 0.995
+
+  split_and_scaling:
+    target_name: "target"
+    test_split: ["2025-01-01 00:00:00", "2025-12-31 23:59:59"] # split by list of IDs (["SB072", "SB023"]), time window ([start, end]) or float/int for random fraction or number of IDs
+    test_size_random_split: 0.2
+    train_val_split: True
+    unlabeled_ids_or_size: null # list for specific IDs (e.g. ["SB072"]) 
+    random_state: 42
+    scaler: "StandardScaler"
+
+model:
+    hidden_units: [244, 204]
+
+training:
+  epochs: 2
+  batch_size_labeled: 256
+  shuffle: true
+  early_stopping:
+    enable: true
+    patience: 10
+    min_delta: 0.01
+  learning_rate: 0.001
+  lr_schedule:
+    type: "cosine_decay" # "none", "cosine_decay"
+    lr_min: 0.00001 # 1e-5
+    warmup_epochs: 5
+  save_model: true
+  save_model_dir: "output/models"
+
+validation:
+  metric_obj: "tf.keras.metrics.RootMeanSquaredError"
+  metric_name: "rmse"
+  test_split_columns_to_keep: ['messzeit_utc', 'quell_id', 'temperature_value']
+  save_results_dir: "output/results"
