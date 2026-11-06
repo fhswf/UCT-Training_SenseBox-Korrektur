@@ -36,4 +36,6 @@ Pro Trainingslauf werden Modelle und Scaler unter `output/models/` sowie Trainin
 
 ## Lizenz
 
-...
+Copyright 2026 Urban Climate Twin, Fachhochschule Südwestfalen
+
+Lizenziert unter der [Apache License 2.0](LICENSE.md).
